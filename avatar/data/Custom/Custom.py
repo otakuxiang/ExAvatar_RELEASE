@@ -95,7 +95,7 @@ class Custom(torch.utils.data.Dataset):
                 kpts[frame_idx] = np.array(json.load(f), dtype=np.float32)
         
         # load smplx parameters
-        smplx_param_path_list = glob(osp.join(self.root_path, 'smplx_optimized', 'smplx_params_smoothed', '*.json'))
+        smplx_param_path_list = glob(osp.join(self.root_path, 'smplx_optimized', 'smplx_params', '*.json'))
         for smplx_param_path in smplx_param_path_list:
             frame_idx = int(smplx_param_path.split('/')[-1][:-5])
             with open(smplx_param_path) as f:

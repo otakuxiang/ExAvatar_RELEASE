@@ -7,7 +7,7 @@ from glob import glob
 from torchmetrics import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 import argparse
-
+import os
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output_path', type=str, dest='output_path')
@@ -28,24 +28,40 @@ results = {'psnr': [], 'ssim': [], 'lpips': []}
 psnr = PeakSignalNoiseRatio(data_range=1).cuda()
 ssim = StructuralSimilarityIndexMeasure(data_range=1).cuda()
 lpips = LearnedPerceptualImagePatchSimilarity(net_type="alex").cuda()
+NeuMan=True
+if os.path.exists(osp.join('..', 'data', 'NeuMan', 'data', subject_id, 'test_split.txt')):
+    with open(osp.join('..', 'data', 'NeuMan', 'data', subject_id, 'test_split.txt')) as f:
+        lines = f.readlines()
+else:
+    NeuMan=False
+    with open(osp.join('..', 'data', 'Custom', 'data', subject_id, 'frame_list_test.txt')) as f:
+        lines = f.readlines()
+dataset = 'NeuMan' if NeuMan else 'Custum'
 
-with open(osp.join('..', 'data', 'NeuMan', 'data', subject_id, 'test_split.txt')) as f:
-    lines = f.readlines()
 for line in lines:
-    frame_idx = int(line[:-5])
-
+    if NeuMan:
+        frame_idx = int(line[:-5])
+    else:
+        frame_idx = int(line[:-1])
     # output image
     out_path = osp.join(output_path, str(frame_idx) + '_scene_human_refined_composed.png')
     out = cv2.imread(out_path)[:,:,::-1]/255.
     out = torch.FloatTensor(out).permute(2,0,1)[None,:,:,:].cuda()
     
     # gt image
-    gt_path = osp.join('..', 'data', 'NeuMan', 'data', subject_id, 'images', '%05d.png' % frame_idx)
+    if NeuMan:
+        gt_path = osp.join('..', 'data', 'NeuMan', 'data', subject_id, 'images', '%05d.png' % frame_idx)
+    else:
+        gt_path = osp.join('..', 'data', 'Custom', 'data', subject_id, 'frames', '%d.png' % frame_idx)
+        # print(gt_path)
     gt = cv2.imread(gt_path)[:,:,::-1]/255.
     gt = torch.FloatTensor(gt).permute(2,0,1)[None,:,:,:].cuda()
     
     # gt mask
-    mask_path = osp.join('..', 'data', 'NeuMan', 'data', subject_id, 'segmentations', '%05d.png' % frame_idx)
+    if NeuMan:
+        mask_path = osp.join('..', 'data', 'NeuMan', 'data', subject_id, 'segmentations', '%05d.png' % frame_idx)
+    else:
+        mask_path = osp.join('..', 'data', 'Custom', 'data', subject_id, 'masks', '%d.png' % frame_idx)
     mask = cv2.imread(mask_path)
     mask = 1 - mask/255. # 0: bkg, 1: human
     mask = torch.FloatTensor(mask).permute(2,0,1)[None,:,:,:].cuda()

@@ -12,7 +12,7 @@ from config import cfg
 from timer import Timer
 from logger import colorlogger
 from torch.nn.parallel.data_parallel import DataParallel
-from model import get_model
+from model_uv import get_model
 
 # dynamic dataset import
 exec('from ' + cfg.dataset + ' import ' + cfg.dataset)

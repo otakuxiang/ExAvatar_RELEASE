@@ -17,7 +17,6 @@ def load_img(path, order='RGB'):
     return img
 
 def get_bbox(kpt_img, kpt_valid, extend_ratio=1.2):
-
     x_img, y_img = kpt_img[:,0], kpt_img[:,1]
     x_img = x_img[kpt_valid==1]; y_img = y_img[kpt_valid==1];
     xmin = min(x_img); ymin = min(y_img); xmax = max(x_img); ymax = max(y_img);

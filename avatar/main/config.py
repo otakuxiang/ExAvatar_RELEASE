@@ -8,6 +8,8 @@ class Config:
     triplane_shape_3d = (2, 2, 2)
     triplane_face_shape_3d = (0.3, 0.3, 0.3)
     triplane_shape = (32, 128, 128)
+    uvplane_shape = (32, 256, 256)
+    uvplane_shape_2d = (1 , 1)
   
     ## train
     lr = 1e-3 
@@ -31,13 +33,19 @@ class Config:
     rotation_lr = 0.001
     warmup_itr = 100
 
+    ## human gaussian
+    densify_human = True
+    densify_extent = 1.0
+    max_n_gaussians = 3e5
+    prune_min_opacity = 0.005
+    
     ## loss functions
     rgb_loss_weight = 0.8
     ssim_loss_weight = 0.2
     lpips_weight = 0.2
 
     ## dataset
-    dataset = 'NeuMan' # Custom, NeuMan
+    dataset = 'Custom' # Custom, NeuMan
 
     ## others
     num_thread = 8

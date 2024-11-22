@@ -39,7 +39,10 @@ def main():
            
             # forward
             trainer.optimizer.zero_grad()
-            stats, loss = trainer.model(data, cur_itr, 'train')
+            if not cfg.fit_pose_to_test:
+                human_gs_out, stats, loss = trainer.model(data, cur_itr, 'train')
+            else:
+                stats, loss = trainer.model(data, cur_itr, 'train')
             loss = {k:loss[k].mean() for k in loss}
 
             # backward
@@ -49,9 +52,14 @@ def main():
             if (not cfg.fit_pose_to_test) and (cur_itr < cfg.densify_end_itr):
                 with torch.no_grad():
                     stats['mean_2d_grad'] = torch.stack([x.grad.detach() for x in stats['mean_2d']])
+                    stats['mean_2d_grad_human'] = torch.stack([x.grad.detach() for x in stats['mean_2d_human']])
                     stats.pop('mean_2d', None)
+                    stats.pop('mean_2d_human', None)
+                    
                     stats = {k: v for k,v in stats.items()}
                     trainer.model.module.adjust_gaussians(stats, trainer.model.module.scene_gaussian, cur_itr, trainer.optimizer)
+                    if cfg.densify_human:
+                        trainer.model.module.adjust_human_gaussians(human_gs_out, stats, trainer.model.module.human_gaussian, cur_itr, trainer.optimizer)
 
             # update
             trainer.optimizer.step()

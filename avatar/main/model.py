@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from nets.module import SceneGaussian, HumanGaussian, SMPLXParamDict, GaussianRenderer
+from nets.module import SceneGaussian, HumanGaussian, SMPLXParamDict, GaussianRenderer, HumanUVGaussian
 from nets.layer import MeshRenderer
 from nets.loss import RGBLoss, SSIM, LPIPS, LaplacianReg, JointOffsetSymmetricReg, HandMeanReg, HandRGBReg, ArmRGBReg
 from utils.smpl_x import smpl_x

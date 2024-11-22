@@ -6,11 +6,16 @@ import os.path as osp
 from config import cfg
 from utils.smplx import smplx
 import pickle
+
+from smplx.utils import Struct
 from pytorch3d.structures import Meshes
 from pytorch3d.ops import SubdivideMeshes
+from pytorch3d.io import load_obj
 from smplx.lbs import batch_rigid_transform
 from pytorch3d.transforms import axis_angle_to_matrix, matrix_to_axis_angle
 import math
+import kaolin as kal
+import open3d as o3d
 
 class SMPLX(object):
     def __init__(self):
@@ -29,6 +34,14 @@ class SMPLX(object):
         self.lhand_vertex_idx = hand_vertex_idx['left_hand']
         self.expr_vertex_idx = self.get_expr_vertex_idx()
 
+        smplx_path = osp.join(cfg.human_model_path, 'smplx', 'SMPLX_NEUTRAL.npz')
+        model_data = np.load(smplx_path, allow_pickle=True)
+        data_struct = Struct(**model_data)
+
+        self._uv = torch.Tensor(data_struct.vt).contiguous()
+        self._uv_idx = torch.Tensor(data_struct.ft.astype(np.int32)).contiguous().int()
+        
+        # self.uv_verts,two,three = load_obj(osp.join(cfg.human_model_path, 'smplx', 'smplx_uv.obj'))
         # SMPLX joint set
         self.joint_num = 55 # 22 (body joints) + 3 (face joints) + 30 (hand joints)
         self.joints_name = \
@@ -52,7 +65,138 @@ class SMPLX(object):
         self.subdivider_list = self.get_subdivider(2)
         self.face_upsampled = self.subdivider_list[-1]._subdivided_faces.cpu().numpy()
         self.vertex_num_upsampled = int(np.max(self.face_upsampled)+1)
- 
+        self.last_uv = None
+        self.last_verts = None
+        self.last_cords_3d = None
+
+    def match_uv_with_mesh_and_subdivide(self, subdivide_num, feat_list=None):
+        '''
+            match the uv map with the smplx mesh, duplicate mesh vertices wich not in the uv map
+        '''
+        # compute the mapping between the smplx mesh and the uv map
+        mapping = {}
+        for face_idx, face in enumerate(self.face_orig):
+            for i, v_idx in enumerate(face):
+                uv_idx = self._uv_idx[face_idx,i]
+                if mapping.get(v_idx.item()) is None:
+                    mapping[v_idx.item()] = [uv_idx.item()]
+                else:
+                    if uv_idx.item() not in mapping[v_idx.item()]:
+                        mapping[v_idx.item()].append(uv_idx.item())
+        
+        # face_uv = []
+        # for v_idx in self.face_vertex_idx:
+        #     for uv_idx in mapping[v_idx]:
+        #         face_uv.append(self._uv[uv_idx])
+        # face_uv = torch.stack(face_uv).float().cuda()
+        # print("range of face_uv:",face_uv.min().item(), face_uv.max().item())
+            
+        
+        ### add cavity faces in uv_face_idx
+        cavity_faces = self.face[-6:]
+        new_cavity_uv_faces = []
+        for face in cavity_faces:
+            face_vertices = []
+            for v_idx in face:
+                face_vertices.append(mapping[v_idx.item()][0])
+            new_cavity_uv_faces.append(face_vertices)
+        self._uv_idx = np.concatenate((self._uv_idx, np.array(new_cavity_uv_faces).astype(np.int32)), axis=0)
+        
+        ### duplicates vertices not in the uv map
+        if feat_list is not None:
+            feat_dims = [x.shape[1] for x in feat_list]
+            feats = torch.cat(feat_list,1)
+        new_vertices = []
+        new_uvs = []
+        new_faces = []
+        new_feats = []
+        vert_map = {}
+        for face_idx, face in enumerate(self.face):
+            face_vertices = []
+            for i, v_idx in enumerate(face):
+                uv_idx = self._uv_idx[face_idx,i]
+                if (v_idx.item(), uv_idx.item()) not in vert_map:
+                    vert_map[(v_idx.item(), uv_idx.item())] = len(new_vertices)
+                    new_vertices.append(self.layer['neutral'].v_template[v_idx.item()])
+                    new_uvs.append(self._uv[uv_idx.item()])
+                    if feat_list is not None:
+                        new_feats.append(feats[v_idx.item()])
+                face_vertices.append(vert_map[(v_idx.item(), uv_idx.item())])
+            new_faces.append(face_vertices)
+        new_vertices = torch.stack(new_vertices).float().cuda()
+        new_uvs = torch.stack(new_uvs).float().cuda()
+        new_faces = torch.tensor(new_faces).long().cuda()
+        new_feats = torch.stack(new_feats).float().cuda()     
+        # subdivide the uv map
+        mesh = Meshes(new_vertices[None,:,:], new_faces[None,:,:])
+
+
+        subdivider_list = [SubdivideMeshes(mesh)]
+
+        for i in range(subdivide_num-1):
+            mesh = subdivider_list[-1](mesh)
+            subdivider_list.append(SubdivideMeshes(mesh))
+            
+        mesh = Meshes(new_vertices[None,:,:], new_faces[None,:,:])
+
+        feats = torch.cat([new_uvs, new_feats],dim=-1)     
+        for subdivider in subdivider_list:
+            mesh, feats = subdivider(mesh, feats)
+        # vert_upsampled = mesh.verts_list()[0]
+        face_upsampled = subdivider_list[-1]._subdivided_faces
+        feats = feats[0]
+        new_uvs = feats[:,:2]
+        feat_list = torch.split(feats[:,2:], feat_dims, dim=1)
+
+        
+        # new_face_verts_upsampled = kal.ops.mesh.index_vertices_by_faces(vert_upsampled.unsqueeze(0), face_upsampled)
+        # old_verts_upsampled = self.upsample_mesh(self.layer['neutral'].v_template.float().cuda())
+        # old_face_verts_upsampled = kal.ops.mesh.index_vertices_by_faces(old_verts_upsampled.unsqueeze(0), self.subdivider_list[-1]._subdivided_faces)
+
+        self.face_vertices_image = kal.ops.mesh.index_vertices_by_faces(new_uvs.unsqueeze(0), face_upsampled) * 2 - 1
+        
+        # self.get_3d_cords_from_uv(new_uvs, vert_upsampled)
+        
+        return new_uvs.cpu().numpy(), *feat_list
+        
+            
+    def get_3d_cords_from_uv(self, uv_cords, verts_3d):
+        '''
+            args:
+                uv_cords: (vertex_num, 2)
+                verts_3d: (vertex_num, 3) the vertices of the smplx model
+            return:
+                cords_3d: (vertex_num, 3)
+        '''
+        face_vertices_3d = kal.ops.mesh.index_vertices_by_faces(verts_3d.unsqueeze(0), self.subdivider_list[-1]._subdivided_faces)
+        face_vertices_z = face_vertices_3d[:,:,2]
+        cord_map,face_index = kal.render.mesh.rasterize(512, 512, face_vertices_z, self.face_vertices_image, face_features = face_vertices_3d)
+        # breakpoint()
+        # import cv2 as cv
+        # tm = cord_map[0].detach().cpu()
+        # tm = (tm - tm.min()) / (tm.max() - tm.min())
+        # cv.imshow('cord_map', tm.numpy())
+        # cv.waitKey(0)
+        # convert pytorch uv cords to opengl uv cords    
+        # opengl_coords = torch.zeros_like(uv_cords)
+        # opengl_coords[:, 0] = uv_cords[:, 0]  # Convert x
+        # opengl_coords[:, 1] = (uv_cords[:, 1])   # Convert y        
+        # face_idx = kal.render.mesh.texture_mapping(opengl_coords.unsqueeze(0),face_index.unsqueeze(0).float())
+        cords_3d = kal.render.mesh.texture_mapping(uv_cords.unsqueeze(0),cord_map.permute(0,3,1,2))
+        # get cord_3d from cord_map using grid_sample
+        # cords_3d = torch.nn.functional.grid_sample(cord_map.permute(0,3,1,2), opengl_coords.reshape(1,-1,1,2), mode='bilinear', align_corners=True)
+        # cords_3d = cords_3d.reshape(uv_cords.shape[0], 3)
+        
+        # pcd = o3d.geometry.PointCloud()
+        # pcd.points = o3d.utility.Vector3dVector(cords_3d[0].detach().cpu().numpy())
+        # pcd_l = o3d.geometry.PointCloud()
+        # pcd_l.points = o3d.utility.Vector3dVector(verts_3d.detach().cpu().numpy())
+        # o3d.visualization.draw_geometries([pcd])
+        # breakpoint()
+        return cords_3d[0]
+    
+    # def render_normal_uv(self, )
+    
     def get_expr_from_flame(self, smplx_layer):
         flame_layer = smplx.create(cfg.human_model_path, 'flame', gender='neutral', num_betas=self.shape_param_dim, num_expression_coeffs=self.expr_param_dim)
         smplx_layer.expr_dirs[self.face_vertex_idx,:,:] = flame_layer.expr_dirs
@@ -76,9 +220,11 @@ class SMPLX(object):
         mesh = Meshes(vert[None,:,:], face[None,:,:])
 
         subdivider_list = [SubdivideMeshes(mesh)]
+
         for i in range(subdivide_num-1):
             mesh = subdivider_list[-1](mesh)
             subdivider_list.append(SubdivideMeshes(mesh))
+
         return subdivider_list
 
     def upsample_mesh(self, vert, feat_list=None):

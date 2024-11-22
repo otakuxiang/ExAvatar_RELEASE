@@ -18,7 +18,7 @@ if root_path[-1] == '/':
 else:
     subject_id = root_path.split('/')[-1]
 
-# remove unnecessary frames
+# # remove unnecessary frames
 with open(osp.join(root_path, 'frame_list_all.txt')) as f:
     frame_idx_list = [int(x) for x in f.readlines()]
 img_path_list = glob(osp.join(root_path, 'frames', '*.png'))
@@ -74,7 +74,7 @@ cmd = 'mv ' + osp.join('..', 'output', 'result', subject_id, 'unwrapped_textures
 os.system(cmd)
 
 # smooth SMPLX
-cmd = 'python smooth_smplx_params.py --root_path ' + root_path
-print(cmd)
-os.system(cmd)
+# cmd = 'python smooth_smplx_params.py --root_path ' + root_path
+# print(cmd)
+# os.system(cmd)
 

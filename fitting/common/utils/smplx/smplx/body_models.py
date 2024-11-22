@@ -2414,7 +2414,7 @@ def create(
             ValueError: In case the model type is not one of SMPL, SMPLH,
             SMPLX, MANO or FLAME
     '''
-
+    
     # If it's a folder, assume
     if osp.isdir(model_path):
         model_path = os.path.join(model_path, model_type)
